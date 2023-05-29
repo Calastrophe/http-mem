@@ -1,80 +1,52 @@
-use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{App, HttpServer};
 use clap::Parser;
 use env_logger::Builder;
-use host::{reader, writer};
-use log::{info, trace, LevelFilter};
+use log::LevelFilter;
+use service::{guest_handler, host_handler};
 mod guest;
 mod host;
-mod parser;
+mod service;
+
+#[derive(Default, Parser, Debug)]
+#[clap(
+    author = "Calastrophe",
+    version,
+    about = "An application to read memory of either the host or guest OS over HTTP."
+)]
+
+// NOTE: We don't offer an OS selection because memflow currently only supports Windows target.
+pub struct Args {
+    #[clap(short, long, default_value_t = 0)]
+    pub verbose: u8,
+    #[clap(short, long, default_value = "127.0.0.1")]
+    pub ip: String,
+    // The use of port 80 enforces the use of sudo
+    #[clap(short, long, default_value_t = 80)]
+    pub port: u16,
+    // NOTE: Use memflowup to easily install connectors.
+    // curl --proto '=https' --tlsv1.2 -sSf https://sh.memflow.io | sh
+    #[clap(short, long, default_value = "kvm")]
+    pub connector: String,
+}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let args = parser::Args::parse();
+    let args = Args::parse();
     let mut builder = Builder::new();
 
-    let level_filter = match (args.error, args.info, args.trace) {
-        (_, _, true) => LevelFilter::Trace,
-        (_, true, _) => LevelFilter::Info,
-        (true, _, _) => LevelFilter::Error,
-        (_, _, _) => LevelFilter::Off,
+    let level_filter = match args.verbose {
+        0 => LevelFilter::Off,
+        1 => LevelFilter::Warn,
+        2 => LevelFilter::Info,
+        3 => LevelFilter::Error,
+        4 => LevelFilter::Debug,
+        _ => LevelFilter::Trace,
     };
+
     builder.filter_level(level_filter).init();
 
-    HttpServer::new(|| App::new().service(read_or_write))
-        .bind(("127.0.0.1", 80))?
+    HttpServer::new(|| App::new().service(guest_handler).service(host_handler))
+        .bind((args.ip, args.port))?
         .run()
         .await
 }
-
-// TODO: Move to its own file "service.rs"
-
-#[get("/{pid}/{address}/{size}/")]
-async fn read_or_write(path: web::Path<(i32, usize, usize)>, body: web::Bytes) -> impl Responder {
-    let (pid, address, size) = path.into_inner();
-    trace!(
-        "There was a read or write call with {} {:X} {}",
-        pid,
-        address,
-        size
-    );
-
-    // If the body is empty, its a read request.
-    if body.is_empty() {
-        info!(
-            "PID: {} | There has been a read request at {:X} with {} size.",
-            pid, address, size
-        );
-
-        // Read the specified amounts of bytes at a given address in PID's address space.
-        let bytes_read = web::block(move || reader(pid, address as _, size)).await;
-
-        let response = match bytes_read {
-            Ok(bytes) => HttpResponse::Ok().body(bytes),
-            Err(_) => HttpResponse::BadRequest().body("Invalid read request"),
-        };
-
-        response
-    } else {
-        // Read the bytes inside the request body
-        let mut bytes_to_write = body.to_vec();
-
-        info!(
-            "PID: {} | There has been a write request at {:X} with contents {:?}.",
-            pid, address, bytes_to_write
-        );
-
-        // Write the bytes, return how many have been written.
-        let bytes_written =
-            web::block(move || writer(pid, address as _, &mut bytes_to_write)).await;
-
-        let response = match bytes_written {
-            Ok(bytes) => HttpResponse::Ok().body(format!("Successfully written {} bytes", bytes)),
-            Err(_) => HttpResponse::BadRequest().body("Invalid write request"),
-        };
-
-        response
-    }
-}
-
-// async fn memflow_read_or_write
-// Allow for reading and write of guest operating system through memflow
