@@ -56,4 +56,4 @@ pub fn writer(pid: i32, addr: *mut c_void, value: &mut Vec<u8>) -> Result<isize,
     }
 }
 
-// TODO: Windows implmentation that uses DBVM?
+// TODO: Have some way to allow for custom read/write functions through traits
