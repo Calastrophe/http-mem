@@ -1,6 +1,8 @@
 use actix_web::{App, HttpServer};
 use clap::Parser;
 use env_logger::Builder;
+use memflow::prelude::v1::*;
+use memflow_win32::prelude::v1::*;
 use log::LevelFilter;
 use service::{guest_handler, host_handler};
 mod guest;
@@ -27,6 +29,8 @@ pub struct Args {
     // curl --proto '=https' --tlsv1.2 -sSf https://sh.memflow.io | sh
     #[clap(short, long, default_value = "kvm")]
     pub connector: String,
+    #[clap(short, long, default_value = "win32")]
+    pub os: String
 }
 
 #[actix_web::main]
@@ -49,4 +53,14 @@ async fn main() -> std::io::Result<()> {
         .bind((args.ip, args.port))?
         .run()
         .await
+}
+
+fn setup_memflow(args: &Args) -> Result<()> {
+    let inventory = Inventory::scan();
+    let connector = inventory.builder().os(&args.os).connector(&args.connector).build()?;
+
+    // TODO: Fix this stupid trait bound issue.
+    let mut os = Win32Kernel::builder(connector);
+
+    Ok(())
 }
