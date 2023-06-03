@@ -51,31 +51,26 @@ async fn main() -> std::io::Result<()> {
 
     builder.filter_level(level_filter).init();
 
-    match args.memflow {
-        true => {
-            let inventory = Inventory::scan();
-            let connector = inventory
-                .create_connector(&args.connector, None, None)
-                .expect("connector init failed");
-            let os = inventory
-                .create_os(&args.os, Some(connector), None)
-                .expect("os init failed");
-            let shared_os = web::Data::new(Mutex::new(os));
-            HttpServer::new(move || {
-                App::new()
-                    .service(guest_handler)
-                    .service(host_handler)
-                    .app_data(shared_os.clone())
-            })
-            .bind((args.ip, args.port))?
-            .run()
-            .await
-        }
-        _ => {
-            HttpServer::new(|| App::new().service(host_handler))
-                .bind((args.ip, args.port))?
-                .run()
-                .await
-        }
-    }
+    let http_server = if args.memflow {
+        let inventory = Inventory::scan();
+        let connector = inventory
+            .create_connector(&args.connector, None, None) // Add another argument for specifiying the VM with conn_args
+            .expect("connector init failed");
+        let os = inventory
+            .create_os(&args.os, Some(connector), None)
+            .expect("os init failed");
+        let shared_os = web::Data::new(Mutex::new(os));
+
+        HttpServer::new(move || {
+            App::new()
+                .service(guest_handler)
+                .service(host_handler)
+                .app_data(shared_os.clone())
+        })
+        .bind((args.ip, args.port))?
+    } else {
+        HttpServer::new(|| App::new().service(host_handler)).bind((args.ip, args.port))?
+    };
+
+    http_server.run().await
 }
