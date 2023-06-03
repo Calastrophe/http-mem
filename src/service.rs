@@ -1,6 +1,8 @@
 use crate::host::{reader, writer};
 use actix_web::{get, web, HttpResponse, Responder};
 use log::{info, trace};
+use memflow::prelude::v1::*;
+use std::sync::Mutex;
 
 // Linux implementation for host read/write requests
 
@@ -56,6 +58,16 @@ async fn host_handler(path: web::Path<(i32, usize, usize)>, body: web::Bytes) ->
 // NOTE: memflow only supports windows targets, but has many connectors.
 
 #[get("/guest/{pid}/{address}/{size}")]
-async fn guest_handler(path: web::Path<(i32, usize, usize)>, body: web::Bytes) -> impl Responder {
-    format!("unimplemented")
+async fn guest_handler(
+    path: web::Path<(i32, usize, usize)>,
+    body: web::Bytes,
+    os: web::Data<Mutex<OsInstance<'_, CBox<'_, trait_group::c_void>, CArc<trait_group::c_void>>>>,
+) -> impl Responder {
+    let (pid, address, size) = path.into_inner();
+    let mut os_instance = os.lock().expect("failed to acquire lock");
+    let process = os_instance
+        .process_by_pid(pid as _)
+        .expect("failed to retrieve process");
+
+    format!("success")
 }

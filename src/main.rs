@@ -1,13 +1,16 @@
-use actix_web::{App, HttpServer};
+use actix_web::{web, App, HttpServer};
 use clap::Parser;
 use env_logger::Builder;
+use log::{info, LevelFilter};
 use memflow::prelude::v1::*;
-use memflow_win32::prelude::v1::*;
-use log::LevelFilter;
 use service::{guest_handler, host_handler};
+use std::sync::Mutex;
 mod guest;
 mod host;
 mod service;
+
+// NOTE: Use memflowup to easily install connectors.
+// curl --proto '=https' --tlsv1.2 -sSf https://sh.memflow.io | sh
 
 #[derive(Default, Parser, Debug)]
 #[clap(
@@ -16,7 +19,6 @@ mod service;
     about = "An application to read memory of either the host or guest OS over HTTP."
 )]
 
-// NOTE: We don't offer an OS selection because memflow currently only supports Windows target.
 pub struct Args {
     #[clap(short, long, default_value_t = 0)]
     pub verbose: u8,
@@ -25,12 +27,12 @@ pub struct Args {
     // The use of port 80 enforces the use of sudo
     #[clap(short, long, default_value_t = 80)]
     pub port: u16,
-    // NOTE: Use memflowup to easily install connectors.
-    // curl --proto '=https' --tlsv1.2 -sSf https://sh.memflow.io | sh
+    #[clap(short, long, default_value_t = true)]
+    pub memflow: bool,
     #[clap(short, long, default_value = "kvm")]
     pub connector: String,
     #[clap(short, long, default_value = "win32")]
-    pub os: String
+    pub os: String,
 }
 
 #[actix_web::main]
@@ -49,18 +51,31 @@ async fn main() -> std::io::Result<()> {
 
     builder.filter_level(level_filter).init();
 
-    HttpServer::new(|| App::new().service(guest_handler).service(host_handler))
-        .bind((args.ip, args.port))?
-        .run()
-        .await
-}
-
-fn setup_memflow(args: &Args) -> Result<()> {
-    let inventory = Inventory::scan();
-    let connector = inventory.builder().os(&args.os).connector(&args.connector).build()?;
-
-    // TODO: Fix this stupid trait bound issue.
-    let mut os = Win32Kernel::builder(connector);
-
-    Ok(())
+    match args.memflow {
+        true => {
+            let inventory = Inventory::scan();
+            let connector = inventory
+                .create_connector(&args.connector, None, None)
+                .expect("connector init failed");
+            let os = inventory
+                .create_os(&args.os, Some(connector), None)
+                .expect("os init failed");
+            let shared_os = web::Data::new(Mutex::new(os));
+            HttpServer::new(move || {
+                App::new()
+                    .service(guest_handler)
+                    .service(host_handler)
+                    .app_data(shared_os.clone())
+            })
+            .bind((args.ip, args.port))?
+            .run()
+            .await
+        }
+        _ => {
+            HttpServer::new(|| App::new().service(host_handler))
+                .bind((args.ip, args.port))?
+                .run()
+                .await
+        }
+    }
 }
