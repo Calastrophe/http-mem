@@ -1,6 +1,3 @@
-[submodule "shared/memflow-win32"]
-	path = shared/memflow-win32
-	url = https://github.com/memflow/memflow-win32.git
 [submodule "shared/memflow"]
 	path = shared/memflow
 	url = https://github.com/memflow/memflow
