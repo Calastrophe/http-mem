@@ -51,7 +51,7 @@ async fn main() -> std::io::Result<()> {
 
     builder.filter_level(level_filter).init();
 
-    let http_server = if args.memflow {
+    if args.memflow {
         let inventory = Inventory::scan();
         let connector = inventory
             .create_connector(&args.connector, None, None) // Add another argument for specifiying the VM with conn_args
@@ -68,9 +68,12 @@ async fn main() -> std::io::Result<()> {
                 .app_data(shared_os.clone())
         })
         .bind((args.ip, args.port))?
+        .run()
+        .await
     } else {
-        HttpServer::new(|| App::new().service(host_handler)).bind((args.ip, args.port))?
-    };
-
-    http_server.run().await
+        HttpServer::new(|| App::new().service(host_handler))
+            .bind((args.ip, args.port))?
+            .run()
+            .await
+    }
 }
