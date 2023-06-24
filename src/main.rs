@@ -5,7 +5,6 @@ use log::{info, LevelFilter};
 use memflow::prelude::v1::*;
 use service::{guest_handler, host_handler};
 use std::sync::Mutex;
-mod guest;
 mod host;
 mod service;
 
