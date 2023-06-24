@@ -26,12 +26,10 @@ async fn host_handler(path: web::Path<(i32, usize, usize)>, body: web::Bytes) ->
         // Read the specified amounts of bytes at a given address in PID's address space.
         let bytes_read = web::block(move || reader(pid, address as _, size)).await;
 
-        let response = match bytes_read {
+        match bytes_read {
             Ok(bytes) => HttpResponse::Ok().body(bytes),
             Err(_) => HttpResponse::BadRequest().body("Invalid read request"),
-        };
-
-        response
+        }
     } else {
         // Read the bytes inside the request body
         let mut bytes_to_write = body.to_vec();
@@ -45,12 +43,10 @@ async fn host_handler(path: web::Path<(i32, usize, usize)>, body: web::Bytes) ->
         let bytes_written =
             web::block(move || writer(pid, address as _, &mut bytes_to_write)).await;
 
-        let response = match bytes_written {
+        match bytes_written {
             Ok(bytes) => HttpResponse::Ok().body(format!("Successfully written {} bytes", bytes)),
             Err(_) => HttpResponse::BadRequest().body("Invalid write request"),
-        };
-
-        response
+        }
     }
 }
 
@@ -65,9 +61,34 @@ async fn guest_handler(
 ) -> impl Responder {
     let (pid, address, size) = path.into_inner();
     let mut os_instance = os.lock().expect("failed to acquire lock");
-    let process = os_instance
+    let mut process = os_instance
         .process_by_pid(pid as _)
         .expect("failed to retrieve process");
 
-    format!("success")
+    if body.is_empty() {
+        info!(
+            "PID: {} | There has been a read request at {:X} with {} size.",
+            pid, address, size
+        );
+
+        match process.read_raw(address.into(), size) {
+            Ok(data) => HttpResponse::Ok().body(data),
+            Err(_) => HttpResponse::BadRequest().body("Invalid read request"),
+        }
+    } else {
+        let bytes_to_write = body.to_vec();
+
+        info!(
+            "PID: {} | There has been a write request at {:X} with contents {:?}.",
+            pid, address, bytes_to_write
+        );
+
+        match process.write_raw(address.into(), &bytes_to_write) {
+            Ok(_) => HttpResponse::Ok().body(format!(
+                "Successfully written {} bytes",
+                bytes_to_write.len()
+            )),
+            Err(_) => HttpResponse::BadRequest().body("Invalid write request"),
+        }
+    }
 }
