@@ -58,4 +58,40 @@ impl HTTPClient {
             _ => Ok(()),
         }
     }
+
+    pub fn read_guest<T: Sized + Copy>(
+        &mut self,
+        pid: i32,
+        address: usize,
+    ) -> Result<T, Box<dyn std::error::Error>> {
+        let size = std::mem::size_of::<T>();
+        let url = format!("{}/guest/{pid}/{address}/{size}", self.base_url);
+        let response = self.client.get(&url).send()?;
+
+        if response.status().is_success() {
+            let bytes = response.bytes()?;
+
+            let result: T = unsafe { *bytes.as_ptr().cast() };
+            Ok(result)
+        } else {
+            Err(HTTPError::InvalidRead.into())
+        }
+    }
+
+    pub fn write_guest<T: Sized + Serialize>(
+        &mut self,
+        pid: i32,
+        address: usize,
+        value: T,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let size = std::mem::size_of::<T>();
+        let url = format!("{}/guest/{pid}/{address}/{size}", self.base_url);
+        let bytes = serialize(&value)?;
+        let response = self.client.get(&url).body(bytes).send()?;
+
+        match response.status().is_success() {
+            false => Err(HTTPError::InvalidWrite.into()),
+            _ => Ok(()),
+        }
+    }
 }
